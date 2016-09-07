@@ -46,11 +46,10 @@ private[tracker] class InstanceTrackerDelegate(
   }
 
   override def countLaunchedSpecInstancesSync(appId: PathId): Int =
-    instancesBySpecSync.specInstances(appId).count(_.launched.isDefined)
+    instancesBySpecSync.specInstances(appId).count(_.isLaunched)
   override def countLaunchedSpecInstancesSync(appId: PathId, filter: Instance => Boolean): Int =
-    instancesBySpecSync.specInstances(appId).count { t =>
-      t.launched.isDefined && filter(t)
-    }
+    instancesBySpecSync.specInstances(appId).count { t => t.isLaunched && filter(t) }
+
   override def countSpecInstancesSync(appId: PathId, filter: Instance => Boolean): Int =
     instancesBySpecSync.specInstances(appId).count(filter)
 

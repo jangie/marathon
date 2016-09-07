@@ -5,7 +5,7 @@ import com.google.inject.Inject
 import mesosphere.marathon.core.base.Clock
 import mesosphere.marathon.core.task.bus.TaskChangeObservables.TaskChanged
 import mesosphere.marathon.core.task.update.TaskUpdateStep
-import mesosphere.marathon.core.task.{ EffectiveTaskStateChange, Task, TaskStateChange, TaskStateOp }
+import mesosphere.marathon.core.task.{ EffectiveTaskStateChange, Task, TaskStateChange, InstanceStateOp }
 import mesosphere.marathon.core.event.MesosStatusUpdateEvent
 import mesosphere.marathon.core.instance.InstanceStatus
 import mesosphere.marathon.state.Timestamp
@@ -25,7 +25,7 @@ class PostToEventStreamStepImpl @Inject() (eventBus: EventStream, clock: Clock) 
   override def name: String = "postTaskStatusEvent"
 
   override def processUpdate(taskChanged: TaskChanged): Future[_] = {
-    import TaskStateOp.MesosUpdate
+    import InstanceStateOp.MesosUpdate
     val taskState = inferTaskState(taskChanged)
 
     taskChanged match {
@@ -41,7 +41,7 @@ class PostToEventStreamStepImpl @Inject() (eventBus: EventStream, clock: Clock) 
         postEvent(clock.now(), taskState, task.mesosStatus, task, inferVersion(task, None))
 
       case _ =>
-        log.debug("Ignoring noop for {}", taskChanged.taskId)
+        log.debug("Ignoring noop for {}", taskChanged.instanceId)
     }
 
     Future.successful(())
@@ -54,7 +54,7 @@ class PostToEventStreamStepImpl @Inject() (eventBus: EventStream, clock: Clock) 
 
   private[this] def inferTaskState(taskChanged: TaskChanged): InstanceStatus = {
     (taskChanged.stateOp, taskChanged.stateChange) match {
-      case (TaskStateOp.MesosUpdate(_, status, mesosStatus, _), _) => status
+      case (InstanceStateOp.MesosUpdate(_, status, mesosStatus, _), _) => status
       case (_, TaskStateChange.Update(newState, maybeOldState)) => newState.status.taskStatus
 
       // TODO: the task status is not updated in this case, so we "assume" KILLED here
@@ -78,7 +78,7 @@ class PostToEventStreamStepImpl @Inject() (eventBus: EventStream, clock: Clock) 
     task: Task,
     version: Timestamp): Unit = {
 
-    val taskId = task.id
+    val taskId = task.taskId
     val slaveId = maybeStatus.fold("n/a")(_.getSlaveId.getValue)
     val message = maybeStatus.fold("")(status => if (status.hasMessage) status.getMessage else "")
     val host = task.agentInfo.host

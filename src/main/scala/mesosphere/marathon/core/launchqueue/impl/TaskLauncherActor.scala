@@ -96,7 +96,7 @@ private class TaskLauncherActor(
   /** tasks that are in flight and those in the tracker */
   private[this] var instanceMap: Map[Instance.Id, Instance] = _
 
-  /** Decorator to use this actor as a [[base.OfferMatcher#TaskOpSource]] */
+  /** Decorator to use this actor as a [[mesosphere.marathon.core.matcher.base.OfferMatcher#TaskOpSource]] */
   private[this] val myselfAsLaunchSource = InstanceOpSourceDelegate(self)
 
   override def preStart(): Unit = {
@@ -264,12 +264,12 @@ private class TaskLauncherActor(
     case TaskChanged(stateOp, stateChange) =>
       stateChange match {
         case TaskStateChange.Update(newState, _) =>
-          log.info("receiveTaskUpdate: updating status of {}", newState.id)
-          instanceMap += newState.id -> newState
+          log.info("receiveTaskUpdate: updating status of {}", newState.taskId)
+          instanceMap += Instance.Id(newState.taskId) -> Instance(newState)
 
         case TaskStateChange.Expunge(task) =>
-          log.info("receiveTaskUpdate: {} finished", task.id)
-          removeTask(task.id)
+          log.info("receiveTaskUpdate: {} finished", task.taskId)
+          removeTask(Instance.Id(task.taskId))
           // A) If the app has constraints, we need to reconsider offers that
           // we already rejected. E.g. when a host:unique constraint prevented
           // us to launch tasks on a particular node before, we need to reconsider offers
