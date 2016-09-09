@@ -1,6 +1,6 @@
 package mesosphere.marathon.core.instance
 
-trait InstanceStateOp {
+trait InstanceStateOp extends Product with Serializable {
   def instanceId: Instance.Id
 
   /**

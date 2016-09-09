@@ -16,6 +16,7 @@ import org.apache.mesos.{ Protos => Mesos }
 import org.slf4j.LoggerFactory
 
 import scala.collection.JavaConverters._
+import scala.collection.immutable.Seq
 import scala.concurrent.duration._
 
 class InstanceOpFactoryImpl(
@@ -32,7 +33,8 @@ class InstanceOpFactoryImpl(
     new InstanceOpFactoryHelper(principalOpt, roleOpt)
   }
 
-  private[this] lazy val appTaskProc: RunSpecTaskProcessor = combine(pluginManager.plugins[RunSpecTaskProcessor])
+  private[this] lazy val appTaskProc: RunSpecTaskProcessor = combine(
+    pluginManager.plugins[RunSpecTaskProcessor].toVector)
 
   override def buildTaskOp(request: InstanceOpFactory.Request): Option[InstanceOp] = {
     log.debug("buildTaskOp")
@@ -45,11 +47,11 @@ class InstanceOpFactoryImpl(
   }
 
   private[this] def inferNormalTaskOp(request: InstanceOpFactory.Request): Option[InstanceOp] = {
-    val InstanceOpFactory.Request(runSpec, offer, tasks, _) = request
+    val InstanceOpFactory.Request(runSpec, offer, instances, _) = request
+    val tasks: Seq[Task] = instances.values.map{ case (t: Task) => t }(collection.breakOut)
 
     new TaskBuilder(runSpec, Instance.Id.forRunSpec, config, Some(appTaskProc)).
-      // TODO POD remove asInstanceOf[Task]
-      buildIfMatches(offer, tasks.values.map(_.asInstanceOf[Task])).map {
+      buildIfMatches(offer, tasks).map {
         case (taskInfo, ports) =>
           val task = Task.LaunchedEphemeral(
             id = Instance.Id(taskInfo.getTaskId),
@@ -68,10 +70,14 @@ class InstanceOpFactoryImpl(
 
           taskOperationFactory.launchEphemeral(taskInfo, task)
       }
+    // TODO(jdef) pods combine with future TaskGroupBuilder results
   }
 
   private[this] def inferForResidents(request: InstanceOpFactory.Request): Option[InstanceOp] = {
-    val InstanceOpFactory.Request(runSpec, offer, tasks, additionalLaunches) = request
+    val InstanceOpFactory.Request(runSpec, offer, instances, additionalLaunches) = request
+
+    // TODO(jdef) pods should be supported some day
+    val tasks: Seq[Task] = instances.values.map{ case (t: Task) => t }(collection.breakOut)
 
     val needToLaunch = additionalLaunches > 0 && request.hasWaitingReservations
     val needToReserve = request.numberOfWaitingReservations < additionalLaunches
@@ -97,14 +103,13 @@ class InstanceOpFactoryImpl(
       maybeVolumeMatch.flatMap { volumeMatch =>
         // we must not consider the volumeMatch's Reserved task because that would lead to a violation of constraints
         // by the Reserved task that we actually want to launch
-        val tasksToConsiderForConstraints = tasks - volumeMatch.task.id
+        val tasksToConsiderForConstraints = tasks.filter(_.id != volumeMatch.task.id)
         // resources are reserved for this role, so we only consider those resources
         val rolesToConsider = config.mesosRole.get.toSet
         val reservationLabels = TaskLabels.labelsForTask(request.frameworkId, volumeMatch.task).labels
         val matchingReservedResourcesWithoutVolumes =
-          // TODO POD remove asInstanceOf[Task]
           ResourceMatcher.matchResources(
-            offer, runSpec, tasksToConsiderForConstraints.values.map(_.asInstanceOf[Task]),
+            offer, runSpec, tasksToConsiderForConstraints,
             ResourceSelector.reservedWithLabels(rolesToConsider, reservationLabels)
           )
 
@@ -128,11 +133,7 @@ class InstanceOpFactoryImpl(
       }
 
       val matchingResourcesForReservation =
-        // TODO POD remove asInstanceOf[Task]
-        ResourceMatcher.matchResources(
-          offer, runSpec, tasks.values.map(_.asInstanceOf[Task]),
-          ResourceSelector.reservable
-        )
+        ResourceMatcher.matchResources(offer, runSpec, tasks, ResourceSelector.reservable)
       matchingResourcesForReservation.map { resourceMatch =>
         reserveAndCreateVolumes(request.frameworkId, runSpec, offer, resourceMatch)
       }
